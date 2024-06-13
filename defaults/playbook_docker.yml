@@ -1,0 +1,70 @@
+---
+- name: Construire et démarrer un conteneur Nginx avec un template HTML5 UP
+  hosts: vm
+  gather_facts: no
+  become: yes
+  become_user: root
+  vars:
+    local_docker_build_path: "/home/dany/agile_wp/wordpress/"
+    remote_docker_build_path: "/home/dany/wordpress/"  
+    template_directory: "{{ remote_docker_build_path }}" 
+    template_url: "https://html5up.net/multiverse/download"
+    template_zip: "/tmp/forty.zip"
+    docker_image_name: "nginx-html5up"
+    docker_image_tag: "latest"
+    container_name: "{{ docker_image_name }}"
+    exposed_port: "8080:80"
+  
+  tasks:
+    - name: Créer le dossier pour Docker et le template
+      ansible.builtin.file:
+        path: "{{ template_directory }}"
+        state: directory
+        mode: "0755"
+    
+    - name: Copier le contenu du répertoire local vers la machine distante
+      ansible.builtin.copy:
+        src: "{{ local_docker_build_path }}/"
+        dest: "{{ remote_docker_build_path }}"
+        mode: "0755"
+        owner: root
+        group: root
+
+
+    - name: Télécharger le template HTML5 UP
+      ansible.builtin.get_url:
+        url: "{{ template_url }}"
+        dest: "{{ template_zip }}"
+        mode: "0644"
+
+    - name: Décompresser le template dans le dossier
+      ansible.builtin.unarchive:
+        src: "{{ template_zip }}"
+        dest: "{{ template_directory }}/"
+        remote_src: yes
+
+    - name: Lister le contenu du répertoire pour débogage
+      ansible.builtin.command:
+        cmd: ls -la {{ remote_docker_build_path }}
+      register: dockerfile_check
+
+    - name: Afficher le résultat de la vérification du Dockerfile
+      debug:
+        var: dockerfile_check.stdout_lines
+
+    - name: Construire l'image Docker
+      community.docker.docker_image:
+        source: build
+        name: "{{ docker_image_name }}:{{ docker_image_tag }}"
+        build:
+          path: "{{ remote_docker_build_path }}"
+        force_source: true
+
+    - name: Démarrer le conteneur Nginx
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image_name }}:{{ docker_image_tag }}"
+        ports:
+          - "{{ exposed_port }}"
+        state: started
+        restart_policy: always
